@@ -4,11 +4,10 @@
 // @description    The Simdynasty Enhancement THingy adds functionality to Simdynasty.com
 // @include        http://simdynasty.com/*
 // @include        http://*.simdynasty.com/*
-// @include        *
 // @require        https://ajax.googleapis.com/ajax/libs/jquery/1.5.1/jquery.min.js
 // @require        https://ajax.googleapis.com/ajax/libs/jqueryui/1.8.10/jquery-ui.min.js
 // @resource       uiCss    http://ajax.googleapis.com/ajax/libs/jqueryui/1.8.10/themes/base/jquery-ui.css
-// @version        1.1.0.1
+// @version        1.0.3
 // ==/UserScript==
 
 // a function that loads jQuery and calls a callback function when jQuery has finished loading
@@ -40,9 +39,8 @@ if (typeof $ == "undefined") {
 }
 
 function main(isGM) {
-    calc = ["Year", "Team", "WHIP", "ERA", "AVG", "OPS", "OBP", "SLG", "Awards", "Series", "Vs", "H/A"]; //what variables aren't simple totals
-    rate = ["WHIP", "ERA", "AVG", "OPS", "OBP", "SLG"];
-    groupBy = ["Series", "Vs", "H/A"];
+    calc=["Year", "Team", "WHIP", "ERA", "AVG", "OPS", "OBP", "SLG", "Awards"]; //what variables aren't simple totals
+    rate =["WHIP", "ERA", "AVG", "OPS", "OBP", "SLG"];
     precs = {
 	"IP": 2,
 	"WHIP": 2,
@@ -134,298 +132,192 @@ function main(isGM) {
 	    obj.removeData("prevBG");
 	}
     }
-
-    function addTotals(headers,data,rowObj) {
-	data["Total"]={};
-	$.each(data,function(row) {
-	    $.each(headers,function(col) {
-		if (row!="Total") {
-		    data["Total"][col]+=data[row][col];
-		}
+    if (window.location.pathname.search(/\/player.jsp$/)!=-1) { //player
+	if (window.location.search.search("mode=mini")==-1 &&
+	    window.location.search.search("mode=teams")==-1 &&
+	    (window.location.search.search("statsorimps=stats")!=-1 ||
+		window.location.search.search("statsorimps")==-1)) { //stats view
+	    if (isGM)
+		$("head").append("<link rel=\"stylesheet\" type=\"text/css\" href=\""+GM_getResourceURL("uiCss")+"\"");
+	    $("body").append("<div id=\"SETH-dialog\"></div>");
+	    var dialog=$("#SETH-dialog");
+	    dialog.dialog({
+		autoOpen: false
 	    });
-	});
+	    $(".ui-dialog-titlebar-close").hide();
 
-	var html="";
-	$.each(headers,function(col) {
-	    html+="<td>"+data["Total"][col]+"</td>";
-	});
+	    var statTable = $(".stat-table");
+	    var headersRow = $("tr:has(th)",statTable);
+	    var totalsRow;
+	    var seasonAvgRow;
+	    var seasonAvgData = {};
+	    var gameAvgRow;
+	    var gameAvgData = {};
+	    var headers = {};
+	    var headersByIdx = [];
+	    var isPitcher;
 
-	$(rowObj).html(html);
-    }
-    var sport="baseball";
-    if (window.location.hostname.search("football")!=-1) {
-	sport="football";
-    }
+	    var startYr;
+	    var endYr;
 
-    if (sport=="baseball") {
-	if (window.location.pathname.search(/\/player.jsp$/)!=-1 && window.location.search.search("mode=mini")==-1) { //player
-	    var view = "unk";
-	    var viewType = "unk";
-	    var useGroupings = false;
-	    if (window.location.search.search("mode=teams")==-1 &&
-		(window.location.search.search("statsorimps=stats")!=-1 ||
-		    window.location.search.search("statsorimps")==-1)) { //stats view
-		view="stats";
-		viewType="stats";
-	    } else if (window.location.search.search("statsorimps=splits")!=-1) {
-		view="splits";
-		viewType="stats";
-		useGroupings = true;
-	    } else if (window.location.search.search("statsorimps=playoffs")!=-1) {
-		view="playoffs";
-		viewType="stats";
-		useGroupings = true;
-	    } else if (window.location.search.search("statsorimps=batting")!=-1) {
-		view="batting";
-		viewType="stats";
-	    }
-	    if (viewType=="stats") {
-		if (isGM)
-		    $("head").append("<link rel=\"stylesheet\" type=\"text/css\" href=\""+GM_getResourceURL("uiCss")+"\"");
-		$("body").append("<div id=\"SETH-dialog\"></div>");
-		var dialog=$("#SETH-dialog");
-		dialog.dialog({
-		    autoOpen: false
-		});
-		$(".ui-dialog-titlebar-close").hide();
-
-		var statTable = $(".stat-table");
-		var headersRow = $("tr:has(th)",statTable);
-		var totalsRow;
-		var seasonAvgRow;
-		var seasonAvgData = {};
-		var gameAvgRow;
-		var gameAvgData = {};
-		var headers = {};
-		var headersByIdx = [];
-		var isHitter;
-		var groupHeader;
-		var groupings;
-		var curGroup;
-		var groupRows;
-		var numGroups=0;
-		if (useGroupings) {
-		    groupHeader = -1;
-		    groupings = {};
-		    groupRows = {
-			"Totals": {},
-			"SeasonAvgs": {},
-			"GameAvgs": {}
-		    };
-		}
-
-		var startYr;
-		var endYr;
-
-		$("th",headersRow).each(function(i) {
-		    headers[$.trim($(this).text())] = i;
-		    headersByIdx[i] = $.trim($(this).text());
-		    if (useGroupings && $.inArray(headersByIdx[i],groupBy)!=-1) {
-			groupHeader=i;
-		    }
-		});
-		if (useGroupings && groupHeader == -1) {
-		    useGroupings = false;
-		}
+	    $("th",headersRow).each(function(i) {
+		headers[$.trim($(this).text())] = i;
+		headersByIdx[i] = $.trim($(this).text());
+	    });
 		
-		var dataRows = $("tr",statTable).not(":has(th)");
-		var data = {};
-		$(dataRows).each(function(row) {
-		    var yr = $($("td",this)[headers["Year"]]).text();
-		    if (yr=="Total") {
-			totalsRow=$(this);
-		    }
-
-		    if (useGroupings) {
-			curGroup = $($("td",this)[groupHeader]).text();
-			if (curGroup!="") {
-			    if (groupings[curGroup]==undefined) {
-				groupings[curGroup]={};
-				++numGroups;
-			    }
-			    groupings[curGroup][yr]={};
-			    if (yr=="Total") {
-				groupRows["Totals"][curGroup]=$(this);
-			    }
-			}
-		    }
+	    var dataRows = $("tr",statTable).not(":has(th)");
+	    var data = {};
+	    $(dataRows).each(function(row) {
+		var yr = $($("td",this)[headers["Year"]]).text();
+		if (yr=="Total") {
+		    totalsRow=$(this);
+		}
 			
-		    data[yr]={};
-		    $("td",this).each(function(col) {
-			var theData = $.trim($(this).text())
-			data[yr][headersByIdx[col]]=theData;
-			if (useGroupings && curGroup!="")
-			    groupings[curGroup][yr][headersByIdx[col]]=theData;
-		    });
+		data[yr]={};
+		$("td",this).each(function(col) {
+		    data[yr][headersByIdx[col]]=$.trim($(this).text());
 		});
-		isHitter = ($.inArray("AB",headersByIdx)!=-1);
+	    });
+	    isHitter = ($.inArray("AB",headersByIdx)!=-1);
 
-		totalsRow.before("<tr bgcolor=\""+totalsRow.attr("bgcolor")+"\" id=\"SETH-seasonAvg\"></tr>");
-		seasonAvgRow=$("#SETH-seasonAvg");
+	    totalsRow.before("<tr bgcolor=\""+totalsRow.attr("bgcolor")+"\" id=\"SETH-seasonAvg\"></tr>");
+	    seasonAvgRow=$("#SETH-seasonAvg");
 
-		if (isHitter) {
-		    totalsRow.before("<tr bgcolor=\""+totalsRow.attr("bgcolor")+"\" id=\"SETH-gameAvg\"></tr>");
-		    gameAvgRow=$("#SETH-gameAvg");
+	    if (isHitter) {
+		totalsRow.before("<tr bgcolor=\""+totalsRow.attr("bgcolor")+"\" id=\"SETH-gameAvg\"></tr>");
+		gameAvgRow=$("#SETH-gameAvg");
+	    }
+
+	    var retVal = setupAvgs(headers,data["Total"],dataRows.length-1,seasonAvgRow,gameAvgRow);
+	    seasonAvgData = retVal.seasonAvgData;
+	    gameAvgData = retVal.gameAvgData;
+	    retVal=undefined;
+
+	    statTable.after("<a href=\"javascript:void(0)\" id=\"SETH-clearYrs\"></a><br>");
+	    $("#SETH-clearYrs").click(clearSelection);
+
+	    $(dataRows).not(":contains(Total)").hover(function() {
+		var yr = $("td:eq("+headers["Year"]+")",this).text();
+		if (startYr==undefined || yr<startYr || endYr==undefined || yr>endYr) {
+		    setBG($(this),hoverColor);
 		}
-
-
-		var numYrs = (dataRows.length-$("td:contains(Total)",dataRows).length)/(numGroups==0 ? 1 : numGroups);
-		var retVal = setupAvgs(headers,data["Total"],numYrs,seasonAvgRow,gameAvgRow);
-		seasonAvgData = retVal.seasonAvgData;
-		gameAvgData = retVal.gameAvgData;
-		retVal=undefined;
-
-		if (useGroupings) {
-		    
-		    $.each(groupRows["Totals"],function(groupName,row) {
-			if ($(row).text()!=$(totalsRow).text()) {
-			    $(row).before("<tr bgcolor=\""+totalsRow.attr("bgcolor")+"\" id=\"SETH-seasonAvg-"+groupName+"\"></tr>");
-			    groupRows["SeasonAvgs"][groupName]=$("#SETH-seasonAvg-"+groupName);
-			    if (isHitter) {
-				$(row).before("<tr bgcolor=\""+totalsRow.attr("bgcolor")+"\" id=\"SETH-gameAvg-"+groupName+"\"></tr>");
-				groupRows["GameAvgs"][groupName]=$("#SETH-gameAvg-"+groupName);
-			    }
-			    setupAvgs(
-				headers,
-				groupings[groupName]["Total"],
-				numYrs,
-				groupRows["SeasonAvgs"][groupName],
-				groupRows["GameAvgs"][groupName]
-				);
-			    $("td:eq("+groupHeader+")",groupRows["SeasonAvgs"][groupName]).html("<b>"+groupName+"</b>");
-			    $("td:eq("+groupHeader+")",groupRows["GameAvgs"][groupName]).html("<b>"+groupName+"</b>");
-			}
-		    });
+	    },function() {
+		var yr = $("td:eq("+headers["Year"]+")",this).text();
+		if (startYr==undefined || yr<startYr || ((endYr==undefined || yr>endYr) && yr!=startYr)) {
+		    resetBG($(this));
 		}
+	    }).children("td").not(":has(a)").click(function(e) {
+		e.preventDefault();
+		var row = $(this).parents("tr");
 
-		if (!useGroupings) {
-		    statTable.after("<a href=\"javascript:void(0)\" id=\"SETH-clearYrs\"></a><br>");
-		    $("#SETH-clearYrs").click(clearSelection);
+		var yr = $("td:eq("+headers["Year"]+")",row).text();
+		if (startYr==undefined) {
+		    startYr=yr;
+		    setBG($(row),hoverColor);
+		} else {
+		    if (yr<startYr) {
+			endYr=startYr;
+			startYr=yr;
+		    } else {
+			endYr=yr;
+		    }
+		}
+		$("#SETH-clearYrs").html("Clear selection");
+		if (startYr!=undefined && endYr!=undefined) {
 
-		    $(dataRows).not(":contains(Total)").hover(function() {
-			var yr = $("td:eq("+headers["Year"]+")",this).text();
-			if (startYr==undefined || yr<startYr || endYr==undefined || yr>endYr) {
+		    var yrs = [];
+		    var totals = {};
+		    $(dataRows).not(":contains(Total)").each(function() {
+			var yr=$("td:eq("+headers["Year"]+")",this).text();
+			if (yr >= startYr && yr <= endYr) {
 			    setBG($(this),hoverColor);
-			}
-		    },function() {
-			var yr = $("td:eq("+headers["Year"]+")",this).text();
-			if (startYr==undefined || yr<startYr || ((endYr==undefined || yr>endYr) && yr!=startYr)) {
+			    yrs.push(yr);
+			} else {
 			    resetBG($(this));
 			}
-		    }).children("td").not(":has(a)").click(function(e) {
-			e.preventDefault();
-			var row = $(this).parents("tr");
-
-			var yr = $("td:eq("+headers["Year"]+")",row).text();
-			if (startYr==undefined) {
-			    startYr=yr;
-			    setBG($(row),hoverColor);
-			} else {
-			    if (yr<startYr) {
-				endYr=startYr;
-				startYr=yr;
-			    } else {
-				endYr=yr;
-			    }
-			}
-			$("#SETH-clearYrs").html("Clear selection");
-			if (startYr!=undefined && endYr!=undefined) {
-
-			    var yrs = [];
-			    var totals = {};
-			    $(dataRows).not(":contains(Total)").each(function() {
-				var yr=$("td:eq("+headers["Year"]+")",this).text();
-				if (yr >= startYr && yr <= endYr) {
-				    setBG($(this),hoverColor);
-				    yrs.push(yr);
-				} else {
-				    resetBG($(this));
-				}
-			    });
-
-			    dialog.dialog("option", {
-				"title": startYr+"-"+endYr,
-				"height": 200,
-				"width": 850
-			    });
-			    dialog.html("<table id=\"SETH-yrSubset\"></table>");
-			    var subsetTable = $("#SETH-yrSubset");
-			    subsetTable.append("<tr id=\"SETH-subsetHeader\"></tr>");
-			    var subsetHeader = $("#SETH-subsetHeader");
-			    subsetTable.append("<tr id=\"SETH-subsetTotals\"></tr>");
-			    var subsetTotals = $("#SETH-subsetTotals");
-			    var subsetGameAvg;
-			    if (isHitter) {
-				subsetTable.append("<tr id=\"SETH-subsetGameAvg\"></tr>");
-				subsetGameAvg = $("#SETH-subsetGameAvg");
-			    }
-			    subsetTable.append("<tr id=\"SETH-subsetSeasonAvg\"></tr>");
-			    var subsetSeasonAvg = $("#SETH-subsetSeasonAvg");
-
-			    $(headersByIdx).each(function() {
-				subsetHeader.append("<th>"+this+"</th>");
-				totals[this]=0;
-			    });
-
-			    //calc totals
-			    var lastTeam="";
-			    $(yrs).each(function() {
-				var yr=this;
-				$(headersByIdx).each(function() {
-				    if ($.inArray(this.toString(),calc)==-1) {
-					if (this=="IP") {
-					    totals[this]+=trueIP(data[yr][this]);
-					} else {
-					    totals[this]+=Number(data[yr][this]);
-					}
-				    } else if (this=="Team") {
-					if (totals[this]=="") {
-					    totals[this]=lastTeam=data[yr][this];
-					} else if (data[yr][this]!=lastTeam) {
-					    lastTeam=data[yr][this];
-					    totals[this]+=","+lastTeam;
-					}
-				    }
-				});
-			    });
-			    totals["Year"]=startYr+"-"+endYr;
-			    totals["Awards"]="";
-			    if (isHitter) {
-				totals["AVG"]=round(totals["H"]/totals["AB"],3);
-				totals["OBP"]=round((totals["H"]+totals["BB"]+totals["HBP"])/(totals["AB"]+totals["BB"]+totals["HBP"]+totals["SF"]),3);
-				totals["SLG"]=round((totals["H"]+totals["2B"]+2*totals["3B"]+3*totals["HR"])/totals["AB"],3);
-				totals["OPS"]=round(Number(totals["OBP"])+Number(totals["SLG"]),3);
-			    } else { //pitcher
-				totals["ERA"]=round(9*totals["ER"]/totals["IP"],2);
-				totals["WHIP"]=round((totals["H"]+totals["BB"])/totals["IP"],2);
-				totals["IP"]=round(dispIP(totals["IP"]),1);
-			    }
-
-			    setupAvgs(headers,totals,yrs.length,subsetSeasonAvg,subsetGameAvg);
-
-			    //output
-			    $(headersByIdx).each(function() {
-				subsetTotals.append("<td>"+totals[this]+"</td>");
-			    });
-
-			    subsetTable.addClass("stat-table").addClass("playercard-stat-table");
-			    $("tr",subsetTable).attr("bgcolor",totalsRow.attr("bgcolor"));
-
-			    dialog.append("<a href=\"javascript:void(0)\" id=\"SETH-closeDialog\">Close</a>"+
-				" | <a href=\"javascript:void(0)\" id=\"SETH-closeAndClear\">Close + Clear Selection</a>");
-			    $("#SETH-closeDialog").click(function() {
-				dialog.dialog("close");
-			    });
-			    $("#SETH-closeAndClear").click(function() {
-				dialog.dialog("close");
-				clearSelection();
-			    });
-
-			    dialog.dialog("open");
-			}
 		    });
+
+		    dialog.dialog("option", {
+			"title": startYr+"-"+endYr,
+			"height": 200,
+			"width": 850
+		    });
+		    dialog.html("<table id=\"SETH-yrSubset\"></table>");
+		    var subsetTable = $("#SETH-yrSubset");
+		    subsetTable.append("<tr id=\"SETH-subsetHeader\"></tr>");
+		    var subsetHeader = $("#SETH-subsetHeader");
+		    subsetTable.append("<tr id=\"SETH-subsetTotals\"></tr>");
+		    var subsetTotals = $("#SETH-subsetTotals");
+		    var subsetGameAvg;
+		    if (isHitter) {
+			subsetTable.append("<tr id=\"SETH-subsetGameAvg\"></tr>");
+			subsetGameAvg = $("#SETH-subsetGameAvg");
+		    }
+		    subsetTable.append("<tr id=\"SETH-subsetSeasonAvg\"></tr>");
+		    var subsetSeasonAvg = $("#SETH-subsetSeasonAvg");
+
+		    $(headersByIdx).each(function() {
+			subsetHeader.append("<th>"+this+"</th>");
+			totals[this]=0;
+		    });
+
+		    //calc totals
+		    var lastTeam="";
+		    $(yrs).each(function() {
+			var yr=this;
+			$(headersByIdx).each(function() {
+			    if ($.inArray(this.toString(),calc)==-1) {
+				if (this=="IP") {
+				    totals[this]+=trueIP(data[yr][this]);
+				} else {
+				    totals[this]+=Number(data[yr][this]);
+				}
+			    } else if (this=="Team") {
+				if (totals[this]=="") {
+				    totals[this]=lastTeam=data[yr][this];
+				} else if (data[yr][this]!=lastTeam) {
+				    lastTeam=data[yr][this];
+				    totals[this]+=","+lastTeam;
+				}
+			    }
+			});
+		    });
+		    totals["Year"]=startYr+"-"+endYr;
+		    totals["Awards"]="";
+		    if (isHitter) {
+			totals["AVG"]=round(totals["H"]/totals["AB"],3);
+			totals["OBP"]=round((totals["H"]+totals["BB"]+totals["HBP"])/(totals["AB"]+totals["BB"]+totals["HBP"]+totals["SF"]),3);
+			totals["SLG"]=round((totals["H"]+totals["2B"]+2*totals["3B"]+3*totals["HR"])/totals["AB"],3);
+			totals["OPS"]=round(Number(totals["OBP"])+Number(totals["SLG"]),3);
+		    } else { //pitcher
+			totals["ERA"]=round(9*totals["ER"]/totals["IP"],2);
+			totals["WHIP"]=round((totals["H"]+totals["BB"])/totals["IP"],2);
+			totals["IP"]=round(dispIP(totals["IP"]),1);
+		    }
+
+		    setupAvgs(headers,totals,yrs.length,subsetSeasonAvg,subsetGameAvg);
+
+		    //output
+		    $(headersByIdx).each(function() {
+			subsetTotals.append("<td>"+totals[this]+"</td>");
+		    });
+
+		    subsetTable.addClass("stat-table").addClass("playercard-stat-table");
+		    $("tr",subsetTable).attr("bgcolor",totalsRow.attr("bgcolor"));
+
+		    dialog.append("<a href=\"javascript:void(0)\" id=\"SETH-closeDialog\">Close</a>"+
+			" | <a href=\"javascript:void(0)\" id=\"SETH-closeAndClear\">Close + Clear Selection</a>");
+		    $("#SETH-closeDialog").click(function() {
+			dialog.dialog("close");
+		    });
+		    $("#SETH-closeAndClear").click(function() {
+			dialog.dialog("close");
+			clearSelection();
+		    });
+
+		    dialog.dialog("open");
 		}
-	    } //if stats view
-	} //if player
-    } //if baseball
-} //main
+	    });
+	} //if stats view
+    }
+}
